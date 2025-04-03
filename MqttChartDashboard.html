@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live MQTT Temperature Chart</title>
+
+  <!-- ApexCharts -->
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+  <!-- MQTT.js -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f9fafb;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+    }
+
+    #chart {
+      max-width: 100%;
+    }
+
+    .waiting {
+      color: #888;
+      font-size: 1.2rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Live Temperature Chart</h1>
+  <div id="chart"></div>
+  <p id="waiting" class="waiting">Waiting for temperature data...</p>
+
+  <script>
+    let chartData = [];
+
+    const chartOptions = {
+      chart: {
+        id: 'temperature-chart',
+        type: 'line',
+        height: 350,
+        animations: {
+          enabled: true,
+          dynamicAnimation: { speed: 1000 },
+        },
+      },
+      series: [{
+        name: 'Temperature',
+        data: chartData
+      }],
+      xaxis: {
+        type: 'datetime',
+        title: { text: 'Time of Day' },
+        labels: {
+          datetimeFormatter: {
+            hour: 'HH:mm:ss',
+          },
+        },
+      },
+      yaxis: {
+        title: { text: 'Temperature (°C)' },
+      },
+      tooltip: {
+        x: {
+          format: 'HH:mm:ss',
+        },
+      },
+    };
+
+    const chart = new ApexCharts(document.querySelector("#chart"), chartOptions);
+    chart.render();
+
+    // MQTT Setup
+    const client = mqtt.connect('wss://5f5ba371ec6448c0b2fbc4399ec24cd5.s1.eu.hivemq.cloud:8884/mqtt', {
+      clientId: "html-dashboard-client",
+      username: 'admin',
+      password: 'IoT@1234567890',
+    });
+
+    client.on('connect', () => {
+      console.log('Connected to MQTT broker');
+      client.subscribe('/karelia/wartsila/026a/sensor/temperature');
+    });
+
+    client.on('message', (topic, payload) => {
+      try {
+        const parsed = JSON.parse(payload.toString());
+        const timestamp = new Date(parsed.timestamp).getTime();
+        const value = parseFloat(parsed.value);
+
+        if (!isNaN(value)) {
+          const newPoint = { x: timestamp, y: value };
+          chartData.push(newPoint);
+
+          // Keep last 20 points
+          if (chartData.length > 20) {
+            chartData = chartData.slice(chartData.length - 20);
+          }
+
+          chart.updateSeries([{ name: 'Temperature', data: chartData }]);
+          document.getElementById("waiting").style.display = "none";
+        }
+      } catch (err) {
+        console.error('Invalid JSON payload:', err);
+      }
+    });
+
+    client.on('error', (err) => {
+      console.error("MQTT connection error:", err);
+    });
+  </script>
+</body>
+</html>
